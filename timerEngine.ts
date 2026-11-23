@@ -58,6 +58,29 @@ export function unwrapClockTurns(rawTurns: number, previousTurns: number): numbe
 }
 
 export const SHORT_CYCLE_SECONDS = 30;
+export const MIN_SET_COUNT = 1;
+export const MAX_SET_COUNT = 10;
+export const DEFAULT_SET_COUNT = 5;
+
+export function clampSetCount(setCount: number): number {
+  return Math.min(MAX_SET_COUNT, Math.max(MIN_SET_COUNT, Math.round(setCount)));
+}
+
+export function sessionLimitMs(setCount: number, config: IntervalConfig = DEFAULT_CONFIG): number {
+  return clampSetCount(setCount) * config.cycleSeconds * 1000;
+}
+
+export function completedSnapshot(config: IntervalConfig, setCount: number): TimerSnapshot {
+  return {
+    phase: 'REST',
+    round: clampSetCount(setCount),
+    remainingMs: 0,
+    remainingSeconds: 0,
+    cycleElapsed: config.cycleSeconds,
+    cycleProgress: 1,
+    phaseProgress: 1,
+  };
+}
 
 export function workSecondsFromTurns(turns: number, cycleSeconds: number = CYCLE_SECONDS): number {
   return configFromWorkSeconds(turns * cycleSeconds, cycleSeconds).workSeconds;

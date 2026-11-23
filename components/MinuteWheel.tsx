@@ -37,6 +37,7 @@ type MinuteWheelProps = {
   segmentStartedAt: number | null;
   remainingSeconds: number;
   config: IntervalConfig;
+  elapsedLimitMs: number;
   onWorkSecondsChange: (workSeconds: number) => void;
 };
 
@@ -179,6 +180,7 @@ export default function MinuteWheel({
   segmentStartedAt,
   remainingSeconds,
   config,
+  elapsedLimitMs,
   onWorkSecondsChange,
 }: MinuteWheelProps) {
   const center = size / 2;
@@ -199,12 +201,14 @@ export default function MinuteWheel({
   const draggingRef = useRef(false);
   const onWorkSecondsChangeRef = useRef(onWorkSecondsChange);
   const configRef = useRef(config);
+  const elapsedLimitRef = useRef(elapsedLimitMs);
 
   geometry.current = { center, handleOrbit };
   workSecondsRef.current = config.workSeconds;
   cycleSecondsRef.current = config.cycleSeconds;
   onWorkSecondsChangeRef.current = onWorkSecondsChange;
   configRef.current = config;
+  elapsedLimitRef.current = elapsedLimitMs;
 
   useEffect(() => {
     if (!draggingRef.current) {
@@ -264,7 +268,11 @@ export default function MinuteWheel({
     let frame = 0;
 
     const sample = () => {
-      const elapsedMs = currentElapsedMs(elapsedBeforeMs, segmentStartedAt, running, Date.now());
+      let elapsedMs = currentElapsedMs(elapsedBeforeMs, segmentStartedAt, running, Date.now());
+      const limitMs = elapsedLimitRef.current;
+      if (elapsedMs >= limitMs) {
+        elapsedMs = Math.max(0, limitMs - 1);
+      }
       const next = snapshotFromElapsed(elapsedMs, configRef.current).cycleProgress;
       const split = configRef.current.workSeconds / configRef.current.cycleSeconds;
       const previous = progress.value;
@@ -294,7 +302,7 @@ export default function MinuteWheel({
 
     frame = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(frame);
-  }, [elapsedBeforeMs, progress, running, segmentStartedAt]);
+  }, [elapsedBeforeMs, elapsedLimitMs, progress, running, segmentStartedAt]);
 
   const tickerProps = useAnimatedProps(() => {
     const angle = progress.value * Math.PI * 2;

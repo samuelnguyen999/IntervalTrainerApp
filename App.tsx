@@ -4,13 +4,17 @@ import { Dimensions, Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, { Easing, interpolateColor, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import MinuteWheel from './components/MinuteWheel';
+import SetSegments from './components/SetSegments';
 import {
   type IntervalConfig,
   CYCLE_SECONDS,
   SHORT_CYCLE_SECONDS,
   DEFAULT_CONFIG,
+  DEFAULT_SET_COUNT,
+  completedSnapshot,
   configFromWorkSeconds,
   currentElapsedMs,
+  sessionLimitMs,
   snapshotFromElapsed,
 } from './timerEngine';
 
@@ -79,21 +83,46 @@ function TimerScreen() {
   const [now, setNow] = useState(() => Date.now());
   const [config, setConfig] = useState<IntervalConfig>(DEFAULT_CONFIG);
   const [workFraction, setWorkFraction] = useState(DEFAULT_CONFIG.workSeconds / DEFAULT_CONFIG.cycleSeconds);
+  const [setCount, setSetCount] = useState(DEFAULT_SET_COUNT);
 
   useEffect(() => {
-    if (!running) {
+    if (!running || segmentStartedAt == null) {
       return;
     }
 
     const id = setInterval(() => {
-      setNow(Date.now());
+      const timestamp = Date.now();
+      const elapsed = currentElapsedMs(elapsedBeforeMs, segmentStartedAt, true, timestamp);
+      if (elapsed >= sessionLimitMs(setCount, config)) {
+        setElapsedBeforeMs(sessionLimitMs(setCount, config));
+        setSegmentStartedAt(null);
+        setRunning(false);
+        setNow(timestamp);
+        return;
+      }
+      setNow(timestamp);
     }, 100);
 
     return () => clearInterval(id);
-  }, [running]);
+  }, [config, elapsedBeforeMs, running, segmentStartedAt, setCount]);
 
+  useEffect(() => {
+    const limit = sessionLimitMs(setCount, config);
+    const elapsed = currentElapsedMs(elapsedBeforeMs, segmentStartedAt, running, Date.now());
+    if (elapsed < limit || (!running && segmentStartedAt == null && elapsedBeforeMs === limit)) {
+      return;
+    }
+    setElapsedBeforeMs(limit);
+    setSegmentStartedAt(null);
+    setRunning(false);
+    setNow(Date.now());
+  }, [config, elapsedBeforeMs, running, segmentStartedAt, setCount]);
+
+  const limitMs = sessionLimitMs(setCount, config);
   const elapsedMs = currentElapsedMs(elapsedBeforeMs, segmentStartedAt, running, now);
-  const snapshot = snapshotFromElapsed(elapsedMs, config);
+  const complete = elapsedMs >= limitMs;
+  const snapshot = complete ? completedSnapshot(config, setCount) : snapshotFromElapsed(elapsedMs, config);
+  const filledSets = complete ? setCount : Math.min(snapshot.round, setCount);
   const primaryLabel = running ? 'PAUSE' : elapsedMs > 0 ? 'RESUME' : 'START';
 
   function onPrimaryPress() {
@@ -104,10 +133,18 @@ function TimerScreen() {
       return;
     }
 
+    if (currentElapsedMs(elapsedBeforeMs, null, false, Date.now()) >= sessionLimitMs(setCount, config)) {
+      return;
+    }
+
     const timestamp = Date.now();
     setSegmentStartedAt(timestamp);
     setNow(timestamp);
     setRunning(true);
+  }
+
+  function onSetCountChange(nextCount: number) {
+    setSetCount(nextCount);
   }
 
   function onWorkSecondsChange(workSeconds: number) {
@@ -136,20 +173,24 @@ function TimerScreen() {
         <View style={[styles.cycleSlot, { top: insets.top + 12 }]}>
           <CycleToggle cycleSeconds={config.cycleSeconds} onChange={onCycleChange} />
         </View>
+        <View style={[styles.setSlot, { top: insets.top + 54 }]}>
+          <SetSegments count={setCount} filled={filledSets} onSelect={onSetCountChange} />
+        </View>
         <View style={styles.upper}>
           <Text testID="phase-label" style={[styles.phase, snapshot.phase === 'REST' && styles.restPhase]}>
             {snapshot.phase}
           </Text>
         </View>
-          <MinuteWheel
-            size={ringSize}
-            running={running}
-            elapsedBeforeMs={elapsedBeforeMs}
-            segmentStartedAt={segmentStartedAt}
-            remainingSeconds={snapshot.remainingSeconds}
-            config={config}
-            onWorkSecondsChange={onWorkSecondsChange}
-          />
+        <MinuteWheel
+          size={ringSize}
+          running={running}
+          elapsedBeforeMs={elapsedBeforeMs}
+          segmentStartedAt={segmentStartedAt}
+          remainingSeconds={snapshot.remainingSeconds}
+          config={config}
+          elapsedLimitMs={limitMs}
+          onWorkSecondsChange={onWorkSecondsChange}
+        />
           <View style={styles.lower}>
             <Text style={styles.round}>ROUND {snapshot.round}</Text>
             <Pressable accessibilityRole="button" onPress={onPrimaryPress} style={styles.startButton}>
@@ -173,6 +214,13 @@ const styles = StyleSheet.create({
     position: 'absolute',
     right: 16,
     zIndex: 2,
+  },
+  setSlot: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    zIndex: 2,
+    alignItems: 'center',
   },
   pill: {
     flexDirection: 'row',
@@ -212,9 +260,9 @@ const styles = StyleSheet.create({
   },
   phase: {
     color: '#E06A28',
-    fontSize: 28,
+    fontSize: 42,
     fontWeight: '600',
-    letterSpacing: 7,
+    letterSpacing: 9,
   },
   restPhase: {
     color: '#6BA4D0',
