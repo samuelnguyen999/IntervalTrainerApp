@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { Dimensions, Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, { Easing, interpolateColor, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
@@ -84,56 +84,76 @@ function TimerScreen() {
   const [config, setConfig] = useState<IntervalConfig>(DEFAULT_CONFIG);
   const [workFraction, setWorkFraction] = useState(DEFAULT_CONFIG.workSeconds / DEFAULT_CONFIG.cycleSeconds);
   const [setCount, setSetCount] = useState(DEFAULT_SET_COUNT);
+  const [finished, setFinished] = useState(false);
+  const finishedRef = useRef(false);
+  const elapsedBeforeRef = useRef(elapsedBeforeMs);
+  const segmentStartedAtRef = useRef(segmentStartedAt);
+  const runningRef = useRef(running);
+  const setCountRef = useRef(setCount);
+  const configRef = useRef(config);
 
-  useEffect(() => {
-    if (!running || segmentStartedAt == null) {
+  elapsedBeforeRef.current = elapsedBeforeMs;
+  segmentStartedAtRef.current = segmentStartedAt;
+  runningRef.current = running;
+  setCountRef.current = setCount;
+  configRef.current = config;
+
+  function finishSession() {
+    if (finishedRef.current) {
       return;
     }
+    const limit = sessionLimitMs(setCountRef.current, configRef.current);
+    finishedRef.current = true;
+    setFinished(true);
+    setElapsedBeforeMs(limit);
+    setSegmentStartedAt(null);
+    setRunning(false);
+    setNow(Date.now());
+  }
 
+  useEffect(() => {
     const id = setInterval(() => {
       const timestamp = Date.now();
-      const elapsed = currentElapsedMs(elapsedBeforeMs, segmentStartedAt, true, timestamp);
-      if (elapsed >= sessionLimitMs(setCount, config)) {
-        setElapsedBeforeMs(sessionLimitMs(setCount, config));
-        setSegmentStartedAt(null);
-        setRunning(false);
-        setNow(timestamp);
+      if (!runningRef.current || segmentStartedAtRef.current == null || finishedRef.current) {
+        return;
+      }
+      const elapsed = currentElapsedMs(elapsedBeforeRef.current, segmentStartedAtRef.current, true, timestamp);
+      if (elapsed >= sessionLimitMs(setCountRef.current, configRef.current)) {
+        finishSession();
         return;
       }
       setNow(timestamp);
     }, 100);
 
     return () => clearInterval(id);
-  }, [config, elapsedBeforeMs, running, segmentStartedAt, setCount]);
-
-  useEffect(() => {
-    const limit = sessionLimitMs(setCount, config);
-    const elapsed = currentElapsedMs(elapsedBeforeMs, segmentStartedAt, running, Date.now());
-    if (elapsed < limit || (!running && segmentStartedAt == null && elapsedBeforeMs === limit)) {
-      return;
-    }
-    setElapsedBeforeMs(limit);
-    setSegmentStartedAt(null);
-    setRunning(false);
-    setNow(Date.now());
-  }, [config, elapsedBeforeMs, running, segmentStartedAt, setCount]);
+  }, []);
 
   const limitMs = sessionLimitMs(setCount, config);
   const elapsedMs = currentElapsedMs(elapsedBeforeMs, segmentStartedAt, running, now);
-  const complete = elapsedMs >= limitMs;
+  const complete = finished || elapsedMs >= limitMs;
   const snapshot = complete ? completedSnapshot(config, setCount) : snapshotFromElapsed(elapsedMs, config);
   const filledSets = complete ? setCount : Math.min(snapshot.round, setCount);
-  const primaryLabel = running ? 'PAUSE' : elapsedMs > 0 ? 'RESUME' : 'START';
+  const primaryLabel = finished ? 'COMPLETE' : running ? 'PAUSE' : elapsedMs > 0 ? 'RESUME' : 'START';
+
+  function onReachEnd() {
+    finishSession();
+  }
 
   function onPrimaryPress() {
-    if (running && segmentStartedAt != null) {
-      setElapsedBeforeMs(currentElapsedMs(elapsedBeforeMs, segmentStartedAt, true, Date.now()));
-      setSegmentStartedAt(null);
-      setRunning(false);
+    if (finishedRef.current) {
       return;
     }
 
-    if (currentElapsedMs(elapsedBeforeMs, null, false, Date.now()) >= sessionLimitMs(setCount, config)) {
+    if (running && segmentStartedAt != null) {
+      const elapsed = currentElapsedMs(elapsedBeforeMs, segmentStartedAt, true, Date.now());
+      const limit = sessionLimitMs(setCount, config);
+      if (elapsed >= limit) {
+        finishSession();
+        return;
+      }
+      setElapsedBeforeMs(elapsed);
+      setSegmentStartedAt(null);
+      setRunning(false);
       return;
     }
 
@@ -145,6 +165,12 @@ function TimerScreen() {
 
   function onSetCountChange(nextCount: number) {
     setSetCount(nextCount);
+    const limit = sessionLimitMs(nextCount, config);
+    const elapsed = currentElapsedMs(elapsedBeforeMs, segmentStartedAt, running, Date.now());
+    if (elapsed < limit && finishedRef.current) {
+      finishedRef.current = false;
+      setFinished(false);
+    }
   }
 
   function onWorkSecondsChange(workSeconds: number) {
@@ -161,6 +187,8 @@ function TimerScreen() {
   }
 
   function onReset() {
+    finishedRef.current = false;
+    setFinished(false);
     setRunning(false);
     setElapsedBeforeMs(0);
     setSegmentStartedAt(null);
@@ -189,6 +217,7 @@ function TimerScreen() {
           remainingSeconds={snapshot.remainingSeconds}
           config={config}
           elapsedLimitMs={limitMs}
+          onReachEnd={onReachEnd}
           onWorkSecondsChange={onWorkSecondsChange}
         />
           <View style={styles.lower}>

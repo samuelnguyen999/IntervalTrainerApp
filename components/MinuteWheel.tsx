@@ -38,6 +38,7 @@ type MinuteWheelProps = {
   remainingSeconds: number;
   config: IntervalConfig;
   elapsedLimitMs: number;
+  onReachEnd?: () => void;
   onWorkSecondsChange: (workSeconds: number) => void;
 };
 
@@ -181,6 +182,7 @@ export default function MinuteWheel({
   remainingSeconds,
   config,
   elapsedLimitMs,
+  onReachEnd,
   onWorkSecondsChange,
 }: MinuteWheelProps) {
   const center = size / 2;
@@ -202,6 +204,7 @@ export default function MinuteWheel({
   const onWorkSecondsChangeRef = useRef(onWorkSecondsChange);
   const configRef = useRef(config);
   const elapsedLimitRef = useRef(elapsedLimitMs);
+  const onReachEndRef = useRef(onReachEnd);
 
   geometry.current = { center, handleOrbit };
   workSecondsRef.current = config.workSeconds;
@@ -209,6 +212,7 @@ export default function MinuteWheel({
   onWorkSecondsChangeRef.current = onWorkSecondsChange;
   configRef.current = config;
   elapsedLimitRef.current = elapsedLimitMs;
+  onReachEndRef.current = onReachEnd;
 
   useEffect(() => {
     if (!draggingRef.current) {
@@ -270,7 +274,10 @@ export default function MinuteWheel({
     const sample = () => {
       let elapsedMs = currentElapsedMs(elapsedBeforeMs, segmentStartedAt, running, Date.now());
       const limitMs = elapsedLimitRef.current;
-      if (elapsedMs >= limitMs) {
+      if (running && limitMs > 0 && elapsedMs >= limitMs) {
+        onReachEndRef.current?.();
+        elapsedMs = Math.max(0, limitMs - 1);
+      } else if (limitMs > 0 && elapsedMs >= limitMs) {
         elapsedMs = Math.max(0, limitMs - 1);
       }
       const next = snapshotFromElapsed(elapsedMs, configRef.current).cycleProgress;
