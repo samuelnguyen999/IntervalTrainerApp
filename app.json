@@ -10,7 +10,10 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.intervaltrainer.timer",
-      "buildNumber": "1"
+      "buildNumber": "1",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "package": "com.intervaltrainer.timer",
@@ -36,6 +39,12 @@
           "imageWidth": 220
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "f1972255-6a85-42f2-a7ce-70e7af8531b2"
+      }
+    },
+    "owner": "snguyen999"
   }
 }
